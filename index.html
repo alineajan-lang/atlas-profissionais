@@ -273,6 +273,26 @@
     return out;
   }
   function pacById(id){ return S.data.pats.find(function(p){ return p.id===id; }); }
+  /* ---------- confirmações: aviso quando o paciente confirma ---------- */
+  (function(){ var st=document.createElement("style"); st.textContent=".ev.confirmada{border-left-color:var(--ok);background:color-mix(in srgb,var(--ok) 22%,var(--surface))} .cfbox{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px} .cfbox .cfl{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px} .cfbox .chip b{font-weight:800}"; document.head.appendChild(st); })();
+  function novasConf(pk){
+    var seen={}, hoje=todayISO(), iniciado=false;
+    try{ seen=JSON.parse(localStorage.getItem("atlas_conf_vistas")||"{}"); iniciado=localStorage.getItem("atlas_conf_init")==="1"; }catch(e){}
+    var conf=pk.cons.filter(function(c){ return c.status==="confirmada"&&c.data>=hoje; }), novos=conf.filter(function(c){ return !seen[c.id]; }), out={};
+    conf.forEach(function(c){ seen[c.id]=1; });
+    try{ localStorage.setItem("atlas_conf_vistas",JSON.stringify(seen)); localStorage.setItem("atlas_conf_init","1"); }catch(e){}
+    if(!iniciado) return out;
+    novos.forEach(function(c){ out[c.id]=1; });
+    if(novos.length) toast(novos.length===1?((novos[0].pn||"Um paciente")+" confirmou presença."):(novos.length+" pacientes confirmaram presença."));
+    return out;
+  }
+  function confHoje(){
+    var hoje=todayISO(), lst=S.data.cons.filter(function(c){ return c.data===hoje&&c.status!=="cancelada"&&c.status!=="realizada"&&c.status!=="faltou"; }).sort(function(a,b){ return String(a.hora||"").localeCompare(String(b.hora||"")); });
+    if(!lst.length) return "";
+    var conf=lst.filter(function(c){ return c.status==="confirmada"; }), ag=lst.filter(function(c){ return c.status!=="confirmada"; });
+    var chip=function(c,ok){ return '<span class="chip '+(ok?"ok":"")+'">'+(ok?"✓ ":"○ ")+esc(c.hora||"")+' '+esc(c.pn||"Paciente")+((ok&&S.novos&&S.novos[c.id])?' <b>novo</b>':"")+'</span>'; };
+    return '<div class="cfbox"><div class="name">Confirmações de hoje</div><div class="meta">✓ '+conf.length+' confirmada'+(conf.length===1?"":"s")+' · ○ '+ag.length+' aguardando confirmação</div><div class="cfl">'+conf.map(function(c){ return chip(c,true); }).join("")+ag.map(function(c){ return chip(c,false); }).join("")+'</div></div>';
+  }
   function agenda(){
     var D=S.data, days=rangeDays(), today=todayISO();
     var title=S.view==="dia"?dlong(days[0]):(dnum(days[0])+" "+MES[+days[0].slice(5,7)-1]+" – "+dnum(days[6])+" "+MES[+days[6].slice(5,7)-1]+" "+days[6].slice(0,4));
@@ -286,14 +306,14 @@
       var evs=layoutDay(cons.filter(function(c){return c.data===d;}).map(function(c){ return Object.assign({},c); }));
       var html=evs.map(function(e){
         var s=toMin(e.hora), top=(s-HSTART*60)/60*HH, h=Math.max(24,(e.duracao||60)/60*HH-2), w=100/e._n, left=e._lane*w;
-        return '<div class="ev '+esc(e.status||"")+'" data-act="cons" data-id="'+esc(e.id)+'" style="--c:#0E8F8A;top:'+top+'px;height:'+h+'px;left:calc('+left+'% + 1px);width:calc('+w+'% - 3px)" title="'+esc((e.pn||"")+" · "+(e.servico||"")+" · "+stLabel(e.status))+'"><b>'+esc(e.hora||"")+' '+esc(e.pn||"Paciente")+'</b>'+(h>38?'<span>'+esc(e.servico||"")+'</span>':"")+'</div>';
+        return '<div class="ev '+esc(e.status||"")+'" data-act="cons" data-id="'+esc(e.id)+'" style="--c:#0E8F8A;top:'+top+'px;height:'+h+'px;left:calc('+left+'% + 1px);width:calc('+w+'% - 3px)" title="'+esc((e.pn||"")+" · "+(e.servico||"")+" · "+stLabel(e.status))+'"><b>'+(e.status==="confirmada"?"✓ ":"")+((S.novos&&S.novos[e.id])?"● ":"")+esc(e.hora||"")+' '+esc(e.pn||"Paciente")+'</b>'+(h>38?'<span>'+esc(e.servico||"")+'</span>':"")+'</div>';
       }).join("");
       var line=(d===today&&nowMin>=HSTART*60&&nowMin<HEND*60)?'<div class="nowline" style="top:'+((nowMin-HSTART*60)/60*HH)+'px"></div>':"";
       return '<div class="col'+(d===today?" today":"")+'" style="height:'+total+'px;cursor:default">'+html+line+'</div>';
     }).join("");
     var vis=cons.filter(function(c){ return c.status!=="cancelada"; });
     var strip='<div class="strip"><span><b>'+vis.length+'</b> consulta'+(vis.length===1?"":"s")+' no período</span><span>Somente consulta: pedidos de alteração vão para a recepção.</span></div>';
-    return tb+strip+'<div class="calwrap" id="calwrap"><div class="cal">'+head+'<div class="calbody" style="grid-template-columns:'+grid+'">'+gutter+cols+'</div></div></div>';
+    return confHoje()+tb+strip+'<div class="calwrap" id="calwrap"><div class="cal">'+head+'<div class="calbody" style="grid-template-columns:'+grid+'">'+gutter+cols+'</div></div></div>';
   }
   function consOpen(id){
     var c=S.data.cons.find(function(x){return x.id===id;}); if(!c) return; var p=c.pid?pacById(c.pid):null, href=p?waHref(p.telefone):"";
@@ -431,7 +451,7 @@
   }
   function aplica(pk){
     if(!pk){ toast("Sua agenda ainda não foi publicada. Avise a recepção."); return false; }
-    pk.cons=pk.cons||[]; pk.pats=pk.pats||[]; pk.rep=pk.rep||[]; S.data=pk; return true;
+    pk.cons=pk.cons||[]; pk.pats=pk.pats||[]; pk.rep=pk.rep||[]; S.data=pk; S.novos=Object.assign(S.novos||{},novasConf(pk)); return true;
   }
   async function entrar(){
     if(S.busy) return; var u=val("uIn"), p=$("pIn")?$("pIn").value:""; if(!u||!p){ toast("Digite o usuário e a senha."); return; }
