@@ -357,7 +357,25 @@
     return crypto.subtle.deriveKey({name:"PBKDF2",salt:unb64(salt),iterations:200000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["decrypt"]);
   }
   async function decObj(key,e){ return JSON.parse(new TextDecoder().decode(new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(e.iv)},key,unb64(e.ct))))); }
-  var PR_SECS=[["dados","Dados pessoais"],["anam","Anamnese"],["rel","Relatos de sessão"]];
+  var PR_SECS=[["dados","Dados pessoais"],["anam","Anamnese"],["rel","Relatos de sessão"],["doc","Documentos"]];
+  function docTit(s){
+    var t=s.tipo, e=String((s.profis&&s.profis.esp)||"").toLowerCase();
+    if(t==="receita") return s.ctrl?"Receita de controle especial":"Receituário";
+    if(t==="exames") return "Solicitação de exames";
+    if(t==="risco") return "Avaliação de risco cirúrgico";
+    if(t==="declaracao") return "Declaração de comparecimento";
+    if(t==="relatorio") return e.indexOf("fonoaud")!==-1?"Relatório fonoaudiológico":(e.indexOf("psicopedag")!==-1?"Relatório psicopedagógico":(e.indexOf("psic")!==-1?"Relatório psicológico":"Relatório médico"));
+    return "Documento";
+  }
+  function docCorpo(s,data){
+    var L=[], NLn=String.fromCharCode(10), ad=function(r,v){ if(String(v||"").trim()) L.push(r?(r+": "+v):v); };
+    if(s.tipo==="receita"){ (s.itens||[]).forEach(function(it,i){ L.push((i+1)+". "+(it.m||"")+(it.p?" — "+it.p:"")+(it.q?" ("+it.q+")":"")); }); ad("Orientações",s.orient); }
+    else if(s.tipo==="exames"){ String(s.exames||"").split(NLn).forEach(function(x,i){ if(x.trim()) L.push((i+1)+". "+x.trim()); }); if(s.urg) L.push("URGENTE"); ad("Indicação clínica",s.indic); ad("Observações",s.obs); }
+    else if(s.tipo==="relatorio"){ ad("Finalidade",s.fin); ad("",s.rel); ad("CID-10",s.indic); }
+    else if(s.tipo==="declaracao"){ L.push("Declaração de comparecimento emitida em "+dshort(data)+"."+(s.rg?" RG "+s.rg:"")); }
+    else if(s.tipo==="risco"){ var r=s.rc||{}; ad("Procedimento",r.proc); ad("Queixas cardiovasculares",r.q); ad("Antecedentes",r.antec); ad("Alergia",r.al); ad("Medicações",r.med); ad("PA / FC",(r.pa||r.fc)?((r.pa||"—")+" mmHg / "+(r.fc||"—")+" bpm"):""); ad("Exame físico",r.fis); ad("Exames",r.ex); ad("Capacidade funcional",r.cap); ad("Risco",r.risco); ad("ACP",r.acp); ad("LEE",r.leip); ad("Parecer",r.parecer); ad("Recomendações",r.rec); ad("Validade",r.val); ad("Observações",r.obs); }
+    return L.join(NLn)||"—";
+  }
   function prTrava(){ if(S.pr){ S.pr.key=null; S.pr.sec="dados"; } }
   function prItens(pid){ var P=S.pr; return (P&&P.pront&&P.pront.itens&&P.pront.itens[pid])||[]; }
   function prCampo(l,v){ return '<div class="field"><label>'+esc(l)+'</label><div style="white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5">'+(v?esc(v):"—")+'</div></div>'; }
@@ -405,6 +423,11 @@
             if(!tem) h+='<div class="note">Nenhum campo preenchido.</div>';
           }
         }
+      } else if(P.sec==="doc"){
+        var ds=its.filter(function(i){ return i.tipo==="documento"; }).sort(function(a,b){ return (b.data||"").localeCompare(a.data||"") || (b.criadoEm||"").localeCompare(a.criadoEm||""); });
+        if(!ds.length) h+='<div class="note">Nenhum documento salvo no prontuário deste paciente.</div>';
+        for(var m=0;m<ds.length;m++){ var s=await decObj(P.key,ds[m].enc), pf=s.profis||{}; h+='<div class="card" style="margin-top:10px"><b>'+esc(docTit(s))+'</b> <span class="meta">· '+esc(dshort(ds[m].data))+(pf.nome?' · '+esc(pf.nome):'')+'</span><div style="white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;margin-top:6px">'+esc(docCorpo(s,ds[m].data))+'</div></div>'; }
+        h+='<div class="note" style="margin-top:10px">Para imprimir ou baixar o PDF, use o sistema da clínica.</div>';
       } else {
         var rs=its.filter(function(i){ return i.tipo==="relato"; }).sort(function(a,b){ return (b.data||"").localeCompare(a.data||"") || (b.criadoEm||"").localeCompare(a.criadoEm||""); });
         if(!rs.length) h+='<div class="note">Nenhum relato registrado.</div>';
